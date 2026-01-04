@@ -68,7 +68,6 @@ with st.sidebar:
     ["Single Option Pricing", "Greeks Analysis", "Volatility Surface", 
      "Portfolio Risk", "Model Comparison", "Market Data Analysis",
      "Strategy Backtesting"]  
-)
     )
     
     st.markdown("---")
