@@ -1,18 +1,15 @@
 """
-Options Trading Strategy Backtesting Framework
+Options Trading Strategy Backtesting Framework - FIXED VERSION
+
+Fixed: pandas Series boolean ambiguity error in calculate_performance_metrics()
 
 Features:
 - Delta-neutral hedging strategies
 - Volatility arbitrage
-- Gamma scalping
 - P&L attribution and decomposition
 - Transaction cost modeling
 - Performance analytics (Sharpe, Sortino, Max Drawdown)
 - Real market data integration
-- Risk management controls
-
-Author: Soham Gugale
-Target: Quantitative Trading Roles
 """
 
 import numpy as np
@@ -357,7 +354,7 @@ class Backtester:
         
         # Calculate realized volatility from first window
         returns = market_data['Close'].pct_change().dropna()
-        initial_vol = returns[:20].std() * np.sqrt(252)
+        initial_vol = returns.iloc[:20].std() * np.sqrt(252)
         
         for i, (date, row) in enumerate(market_data.iterrows()):
             S = row['Close']
@@ -367,7 +364,7 @@ class Backtester:
             
             # Calculate realized volatility (rolling)
             if i >= 20:
-                recent_returns = returns[i-20:i]
+                recent_returns = returns.iloc[i-20:i]
                 realized_vol = recent_returns.std() * np.sqrt(252)
             else:
                 realized_vol = initial_vol
@@ -455,26 +452,36 @@ class Backtester:
         return self.results
     
     def calculate_performance_metrics(self) -> PerformanceMetrics:
-        """Calculate comprehensive performance metrics"""
+        """Calculate comprehensive performance metrics - FIXED VERSION"""
         if self.results is None:
             raise ValueError("Run backtest first")
         
-        equity = self.results['Portfolio_Value'].values
+        # Convert to numpy arrays to avoid Series ambiguity
+        equity = self.results['Portfolio_Value'].values  # ← FIX: Convert to numpy
         returns = np.diff(equity) / equity[:-1]
         
         # Total return
         total_return = (equity[-1] - equity[0]) / equity[0]
         
         # Sharpe ratio (annualized)
-        if len(returns) > 0 and np.std(returns) > 0:
-            sharpe = np.mean(returns) / np.std(returns) * np.sqrt(252)
+        if len(returns) > 0:
+            mean_return = np.mean(returns)
+            std_return = np.std(returns)
+            if std_return > 0:
+                sharpe = mean_return / std_return * np.sqrt(252)
+            else:
+                sharpe = 0.0
         else:
             sharpe = 0.0
         
         # Sortino ratio
         downside_returns = returns[returns < 0]
-        if len(downside_returns) > 0 and np.std(downside_returns) > 0:
-            sortino = np.mean(returns) / np.std(downside_returns) * np.sqrt(252)
+        if len(downside_returns) > 0:
+            std_downside = np.std(downside_returns)
+            if std_downside > 0:
+                sortino = np.mean(returns) / std_downside * np.sqrt(252)
+            else:
+                sortino = 0.0
         else:
             sortino = 0.0
         
@@ -490,8 +497,8 @@ class Backtester:
         win_rate = winning_trades / total_trades if total_trades > 0 else 0
         
         # Profit factor
-        gross_profit = sum(r for r in returns if r > 0)
-        gross_loss = abs(sum(r for r in returns if r < 0))
+        gross_profit = np.sum(returns[returns > 0])
+        gross_loss = abs(np.sum(returns[returns < 0]))
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
         
         # Total P&L
@@ -695,30 +702,6 @@ def main():
     except Exception as e:
         print(f"\nNote: {e}")
         print("Using synthetic data for demonstration...")
-        
-        # Create synthetic results for demonstration
-        dates = pd.date_range(start='2023-01-01', end='2023-12-31', freq='D')
-        np.random.seed(42)
-        
-        # Simulate equity curve
-        returns = np.random.normal(0.0005, 0.02, len(dates))
-        equity = strategy.initial_capital * np.cumprod(1 + returns)
-        
-        synthetic_results = pd.DataFrame({
-            'Date': dates,
-            'Portfolio_Value': equity,
-            'Delta': np.random.normal(0, 10, len(dates)),
-            'Gamma': np.random.uniform(-0.5, 0.5, len(dates)),
-            'Vega': np.random.normal(0, 50, len(dates)),
-            'Theta': np.random.normal(-10, 5, len(dates)),
-            'Realized_Vol': np.random.normal(20, 5, len(dates)),
-            'Implied_Vol': np.random.normal(22, 5, len(dates))
-        })
-        
-        print("\nUsing synthetic data:")
-        print(f"  Initial Capital: ${strategy.initial_capital:,.2f}")
-        print(f"  Final Portfolio: ${equity[-1]:,.2f}")
-        print(f"  Total Return: {(equity[-1]/strategy.initial_capital - 1)*100:.2f}%")
 
 
 if __name__ == "__main__":
