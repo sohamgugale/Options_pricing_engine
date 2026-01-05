@@ -1,7 +1,7 @@
 """
-Options Trading Strategy Backtesting Framework - COMPLETE FIX
+Options Trading Strategy Backtesting Framework - BROADCASTING FIX
 
-All pandas Series issues resolved with explicit scalar conversions
+Fixed: Array broadcasting error in returns calculation
 """
 
 import numpy as np
@@ -140,37 +140,6 @@ class TradingStrategy:
         positions_value = sum(pos.quantity * pos.current_price 
                             for pos in self.positions.values())
         return self.cash + positions_value
-    
-    def get_portfolio_greeks(self, S: float, r: float, 
-                           options_data: Dict[str, Dict]) -> Dict[str, float]:
-        """Calculate portfolio-level Greeks"""
-        total_delta = 0.0
-        total_gamma = 0.0
-        total_vega = 0.0
-        total_theta = 0.0
-        
-        for asset, pos in self.positions.items():
-            if asset.startswith('option_'):
-                opt_data = options_data[asset]
-                option = OptionContract(
-                    S=S, K=opt_data['K'], T=opt_data['T'],
-                    r=r, sigma=opt_data['sigma'], option_type=opt_data['type']
-                )
-                bs = BlackScholesEngine(option)
-                
-                total_delta += bs.delta() * pos.quantity
-                total_gamma += bs.gamma() * pos.quantity
-                total_vega += bs.vega() * pos.quantity
-                total_theta += bs.theta() * pos.quantity
-            elif asset == 'stock':
-                total_delta += pos.quantity
-        
-        return {
-            'delta': total_delta,
-            'gamma': total_gamma,
-            'vega': total_vega,
-            'theta': total_theta
-        }
 
 
 class DeltaHedgingStrategy(TradingStrategy):
@@ -183,12 +152,6 @@ class DeltaHedgingStrategy(TradingStrategy):
         self.rehedge_threshold = rehedge_threshold
         self.rehedge_frequency = rehedge_frequency
         self.days_since_rehedge = 0
-        self.pnl_attribution = {
-            'theta_pnl': [],
-            'gamma_pnl': [],
-            'vega_pnl': [],
-            'residual_pnl': []
-        }
     
     def should_rehedge(self, current_delta: float) -> bool:
         """Determine if portfolio needs rehedging"""
@@ -250,7 +213,7 @@ class Backtester:
                                    T: float = 30/365,
                                    option_type: str = 'call',
                                    transaction_cost: float = 0.001) -> pd.DataFrame:
-        """Run delta hedging backtest with complete scalar conversions"""
+        """Run delta hedging backtest - FIXED ARRAY BROADCASTING"""
         
         market_data = self.fetch_market_data()
         
@@ -263,32 +226,54 @@ class Backtester:
         print(f"Initial capital: ${self.strategy.initial_capital:,.2f}")
         print(f"Option: {option_type}, Strike offset: ${K_offset:.2f}, T: {T:.3f}y")
         
-        # Calculate realized volatility - EXPLICIT SCALAR CONVERSION
-        close_prices = market_data['Close'].values  # Convert to numpy array
+        # CRITICAL FIX: Properly extract Close prices as 1D array
+        # Handle both single-ticker and multi-ticker DataFrames
+        if isinstance(market_data['Close'], pd.DataFrame):
+            # Multi-ticker case (shouldn't happen with single ticker, but be safe)
+            close_prices = market_data['Close'].iloc[:, 0].values
+        else:
+            # Single-ticker case (normal)
+            close_prices = market_data['Close'].values
+        
+        # Ensure 1D array
+        close_prices = np.asarray(close_prices).flatten()
+        
+        # Calculate returns safely
+        if len(close_prices) < 2:
+            raise ValueError("Insufficient data points")
+        
         returns = np.diff(close_prices) / close_prices[:-1]
         
+        # Initial volatility
         if len(returns) >= 20:
-            initial_vol = float(np.std(returns[:20]) * np.sqrt(252))  # Explicit float conversion
+            initial_vol = float(np.std(returns[:20]) * np.sqrt(252))
         else:
-            initial_vol = 0.2  # Default 20% volatility
+            initial_vol = 0.2
         
+        # Main backtest loop
         for i, (date, row) in enumerate(market_data.iterrows()):
-            # EXPLICIT SCALAR CONVERSIONS - THIS IS THE KEY FIX
-            S = float(row['Close'])  # ← Force to float
+            # Extract scalar values safely
+            if isinstance(row['Close'], (pd.Series, np.ndarray)):
+                S = float(row['Close'].iloc[0] if isinstance(row['Close'], pd.Series) else row['Close'][0])
+            else:
+                S = float(row['Close'])
             
             T_current = max(T - i/252, 0.01)
             
-            # Calculate realized volatility with explicit conversion
-            if i >= 20:
+            # Calculate realized volatility
+            if i >= 20 and i <= len(returns):
                 recent_returns = returns[max(0, i-20):i]
-                realized_vol = float(np.std(recent_returns) * np.sqrt(252))  # ← Force to float
+                if len(recent_returns) > 0:
+                    realized_vol = float(np.std(recent_returns) * np.sqrt(252))
+                else:
+                    realized_vol = initial_vol
             else:
                 realized_vol = initial_vol
             
-            sigma = float(realized_vol)  # ← Force to float
-            K_current = float(S + K_offset)  # ← Force to float
+            sigma = float(realized_vol)
+            K_current = float(S + K_offset)
             
-            # Create option with guaranteed scalar values
+            # Create option
             option = OptionContract(
                 S=S, 
                 K=K_current, 
@@ -301,7 +286,7 @@ class Backtester:
             
             # Initial trade
             if i == 0:
-                option_price = float(bs.price())  # ← Force to float
+                option_price = float(bs.price())
                 self.strategy.execute_trade(
                     timestamp=date,
                     asset=f'option_{option_type}',
@@ -313,10 +298,10 @@ class Backtester:
             
             # Update option price
             if f'option_{option_type}' in self.strategy.positions:
-                option_price = float(bs.price())  # ← Force to float
+                option_price = float(bs.price())
                 self.strategy.positions[f'option_{option_type}'].current_price = option_price * 100
             
-            # Calculate Greeks with explicit float conversions
+            # Calculate Greeks
             greeks = {
                 'delta': float(bs.delta() * (-100)),
                 'gamma': float(bs.gamma() * (-100)),
@@ -346,7 +331,7 @@ class Backtester:
             self.strategy.equity_curve.append(portfolio_value)
             self.strategy.timestamps.append(date)
             
-            # Record results with explicit conversions
+            # Record results
             results.append({
                 'Date': date,
                 'Stock_Price': float(S),
@@ -368,62 +353,44 @@ class Backtester:
         return self.results
     
     def calculate_performance_metrics(self) -> PerformanceMetrics:
-        """Calculate performance metrics with numpy arrays"""
+        """Calculate performance metrics"""
         if self.results is None:
             raise ValueError("Run backtest first")
         
-        # Convert to numpy arrays
         equity = self.results['Portfolio_Value'].values
         returns = np.diff(equity) / equity[:-1]
         
-        # Total return
         total_return = float((equity[-1] - equity[0]) / equity[0])
         
-        # Sharpe ratio
         if len(returns) > 0:
             mean_return = float(np.mean(returns))
             std_return = float(np.std(returns))
-            if std_return > 0:
-                sharpe = float(mean_return / std_return * np.sqrt(252))
-            else:
-                sharpe = 0.0
+            sharpe = float(mean_return / std_return * np.sqrt(252)) if std_return > 0 else 0.0
         else:
             sharpe = 0.0
         
-        # Sortino ratio
         downside_returns = returns[returns < 0]
         if len(downside_returns) > 0:
             std_downside = float(np.std(downside_returns))
-            if std_downside > 0:
-                sortino = float(mean_return / std_downside * np.sqrt(252))
-            else:
-                sortino = 0.0
+            sortino = float(mean_return / std_downside * np.sqrt(252)) if std_downside > 0 else 0.0
         else:
             sortino = 0.0
         
-        # Maximum drawdown
         cumulative = np.maximum.accumulate(equity)
         drawdown = (equity - cumulative) / cumulative
         max_drawdown = float(np.min(drawdown))
         
-        # Win rate
         winning_trades = len([t for t in self.strategy.transactions if t.quantity < 0])
         total_trades = len(self.strategy.transactions)
         win_rate = float(winning_trades / total_trades if total_trades > 0 else 0)
         
-        # Profit factor
         gross_profit = float(np.sum(returns[returns > 0]))
         gross_loss = float(abs(np.sum(returns[returns < 0])))
         profit_factor = float(gross_profit / gross_loss if gross_loss > 0 else 0)
         
-        # Total P&L
         total_pnl = float(equity[-1] - equity[0])
         avg_trade_pnl = float(total_pnl / total_trades if total_trades > 0 else 0)
-        
-        # Volatility
         volatility = float(np.std(returns) * np.sqrt(252))
-        
-        # Calmar ratio
         calmar = float(abs(total_return / max_drawdown) if max_drawdown != 0 else 0)
         
         return PerformanceMetrics(
