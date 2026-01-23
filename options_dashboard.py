@@ -10,7 +10,6 @@ st.markdown("""
 <style>
     .stMetric { background-color: #0E1117; border: 1px solid #333; }
     .stButton button { width: 100%; border-radius: 5px; font-weight: bold; }
-    /* Fix for Plotly background */
     .js-plotly-plot .plotly .main-svg { background: rgba(0,0,0,0) !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -31,20 +30,17 @@ with st.sidebar:
     st.header("⚙️ Solver Config")
     opt_type = st.radio("Type", ["Call", "Put"], horizontal=True)
     style = st.radio("Exercise", ["European", "American"], horizontal=True)
-    barrier = st.number_input("Barrier Level (0 = None)", value=0.0, step=1.0, help="Knock-Out Barrier")
+    barrier = st.number_input("Barrier Level (0 = None)", value=0.0, step=1.0)
     
     is_call = opt_type == "Call"
     is_american = style == "American"
 
-# --- MAIN LAYOUT (TABS DEFINITION) ---
-# This must be outside the sidebar!
+# --- MAIN LAYOUT ---
 tab_main, tab_val, tab_about = st.tabs(["🚀 Pricing & Greeks", "🔬 Mesh Validation", "🧠 Methodology"])
 
 # --- TAB 1: PRICING ---
 with tab_main:
     col1, col2 = st.columns([1, 2])
-    
-    # Left Col: Control & Metrics
     with col1:
         if st.button("Run Solver", type="primary"):
             if CPP_AVAILABLE:
@@ -53,16 +49,19 @@ with tab_main:
                 
                 st.metric("Model Price", f"${res['price']:.4f}")
                 
-                # Full Greeks with "Trader" Context
+                # --- GREEKS LAYOUT FIX ---
                 st.markdown("### 🏛️ Risk Sensitivities")
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Exposure: Dollar change in option price for  move in underlying.")
-                c2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity: How much Delta changes for  move in underlying.")
-                c3.metric("Vega (ν)", f"{res['vega']:.4f}", help="Vol Risk: Dollar change for 1% change in volatility.")
                 
-                c4, c5 = st.columns(2)
-                c4.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay: Dollar loss per day holding the position.")
-                c5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Rate Risk: Dollar change for 1% change in interest rates.")
+                # Row 1: Small Greeks (3 Cols)
+                g1, g2, g3 = st.columns(3)
+                g1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Price Sensitivity")
+                g2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity")
+                g3.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay")
+
+                # Row 2: Big Greeks (2 Cols - Wider)
+                g4, g5 = st.columns(2)
+                g4.metric("Vega (ν)", f"{res['vega']:.4f}", help="Volatility Sensitivity")
+                g5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Interest Rate Sensitivity")
 
                 if barrier > 0:
                      if (is_call and S >= barrier) or (not is_call and S <= barrier):
@@ -70,12 +69,10 @@ with tab_main:
                      else:
                         st.info(f"Barrier Active at {barrier}")
                 
-                # Save for Plotly context
                 st.session_state['last_S'] = S
             else:
                 st.error("C++ Module Not Compiled.")
     
-    # Right Col: 3D Plot
     with col2:
         st.markdown("### 🧊 Volatility Surface")
         if st.button("🔄 Generate 3D Surface (Spot vs Time)"):
@@ -87,7 +84,6 @@ with tab_main:
 
                 for i in range(len(T_range)):
                     for j in range(len(S_range)):
-                        # Use BS for visualization speed
                         eng = BlackScholesEngine(S_mesh[i,j], K, T_mesh[i,j], r, sigma, is_call)
                         Z_price[i,j] = eng.price()
                 
@@ -101,16 +97,16 @@ with tab_main:
                 st.plotly_chart(fig, use_container_width=True)
                 st.caption("Surface generated using Analytical approximation for UI responsiveness.")
 
-# --- TAB 2: VALIDATION (Mesh Convergence) ---
+# --- TAB 2: VALIDATION ---
 with tab_val:
     st.markdown("### 🕸️ Mesh Independence Study")
-    st.write("In Computational Mechanics, we must prove the solution does not depend on the grid size. This chart compares the Price convergence as we refine the Time Grid (N).")
+    st.write("Verifying that the C++ Finite Difference solver converges to a stable solution as we refine the time grid ($).")
     
     col_v1, col_v2 = st.columns([1, 2])
     with col_v1:
         if st.button("Run Convergence Test"):
             if CPP_AVAILABLE:
-                grid_sizes = [100, 200, 400, 800, 1600]
+                grid_sizes = [50, 100, 200, 400, 800, 1600]
                 prices = []
                 
                 progress_bar = st.progress(0)
@@ -121,80 +117,62 @@ with tab_val:
                     prices.append(res['price'])
                     progress_bar.progress((i + 1) / len(grid_sizes))
                 
-                # Store results for plot
-                st.session_state['conv_data'] = pd.DataFrame({"Time Steps (N)": grid_sizes, "Price": prices})
+                st.session_state['conv_data'] = pd.DataFrame({"N": grid_sizes, "Price": prices})
                 st.session_state['conv_done'] = True
             else:
                 st.error("C++ Module Missing")
     
     with col_v2:
         if st.session_state.get('conv_done'):
-            st.line_chart(st.session_state['conv_data'], x="Time Steps (N)", y="Price")
-            prices = st.session_state['conv_data']['Price'].tolist()
-            convergence_err = abs(prices[-1] - prices[-2])
-            st.success(f"Converged within ${convergence_err:.5f} between N=800 and N=1600")
+            df = st.session_state['conv_data']
+            fig_conv = go.Figure()
+            fig_conv.add_trace(go.Scatter(x=df["N"], y=df["Price"], mode='lines+markers', name='FDM Price', line=dict(color='#00ffcc')))
+            
+            y_min, y_max = df["Price"].min(), df["Price"].max()
+            padding = (y_max - y_min) * 0.1 if y_max != y_min else 0.01
+            
+            fig_conv.update_layout(
+                title="Convergence vs Time Steps (N)",
+                xaxis_title="Time Steps (N)",
+                yaxis_title="Option Price ($)",
+                yaxis=dict(range=[y_min - padding, y_max + padding]),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color="white")
+            )
+            st.plotly_chart(fig_conv, use_container_width=True)
+            
+            change = abs(df['Price'].iloc[-1] - df['Price'].iloc[-2])
+            st.success(f"Converged! Change from N={grid_sizes[-2]} to N={grid_sizes[-1]} is only ${change:.6f}")
 
-    # --- LIVE UNIT TESTS SECTION ---
     st.markdown("---")
     st.markdown("### 🛡️ Unit Test Suite")
     if st.button("Run Live Verification Tests"):
         st.write("Running benchmark tests against Analytical Solutions...")
-        
-        # Test 1: BS Convergence
         bs_price = BlackScholesEngine(100, 100, 1, 0.05, 0.2, True).price()
         fdm_price = FDMEngine(100, 100, 1, 0.05, 0.2, True, False).calculate()['price']
         err = abs(bs_price - fdm_price)
-        
-        if err < 0.05:
-            st.success(f"✅ PASS: European Call Match (Diff: ${err:.4f})")
-        else:
-            st.error(f"❌ FAIL: European Call Mismatch (Diff: ${err:.4f})")
+        st.success(f"✅ PASS: European Call Match (Diff: ${err:.4f})") if err < 0.05 else st.error(f"❌ FAIL: Diff ${err:.4f}")
 
-        # Test 2: Put-Call Parity
         c = FDMEngine(100, 100, 1, 0.05, 0.2, True, False).calculate()['price']
         p = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
-        parity_diff = abs((c - p) - (100 - 100*np.exp(-0.05)))
-        
-        if parity_diff < 0.05:
-            st.success(f"✅ PASS: Put-Call Parity (Diff: {parity_diff:.4f})")
-        else:
-            st.error(f"❌ FAIL: Parity Violation")
+        diff = abs((c - p) - (100 - 100*np.exp(-0.05)))
+        st.success(f"✅ PASS: Put-Call Parity (Diff: {diff:.4f})") if diff < 0.05 else st.error("❌ FAIL")
             
-        # Test 3: American Premium
-        euro_put = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
-        amer_put = FDMEngine(100, 100, 1, 0.05, 0.2, False, True).calculate()['price']
-        
-        if amer_put >= euro_put:
-             st.success(f"✅ PASS: American Premium ({amer_put:.4f} >= {euro_put:.4f})")
-        else:
-             st.error("❌ FAIL: Arbitrage Opportunity Detected")
+        euro = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
+        amer = FDMEngine(100, 100, 1, 0.05, 0.2, False, True).calculate()['price']
+        st.success(f"✅ PASS: American Premium ({amer:.4f} >= {euro:.4f})") if amer >= euro else st.error("❌ FAIL")
 
 # --- TAB 3: METHODOLOGY ---
 with tab_about:
     st.markdown("### 🔧 From Mechanics to Markets")
     st.write("This engine leverages concepts from **Computational Fluid Dynamics (CFD)** to solve Financial Derivatives.")
-    
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown("#### 🏗️ Physics Concept")
-        st.markdown("""
-        * **Heat Diffusion:** $\frac{\partial T}{\partial t} = \alpha \nabla^2 T$
-        * **Mesh Independence:** Solution must not change with finer grid.
-        * **Material Sensitivity:** How $ changes if conductivity $ changes.
-        """)
+        st.markdown("* **Heat Diffusion:** $\frac{\partial T}{\partial t} = \alpha \nabla^2 T$")
+        st.markdown("* **Mesh Independence:** Solution must not change with finer grid.")
     with col_b:
         st.markdown("#### 📈 Finance Application")
-        st.markdown("""
-        * **Option Pricing:** Black-Scholes PDE is a diffusion equation.
-        * **Convergence:** We prove price stability by refining $ and $.
-        * **Greeks (Vega/Rho):** Calculated via Direct Differentiation (Bump-and-Revalue).
-        """)
-
-    st.markdown("---")
-    st.markdown("#### 💻 Technical Implementation")
-    st.code("""
-    // C++ Core (Solver.cpp)
-    // - Implements Thomas Algorithm for O(N) Tridiagonal Matrix Solving
-    // - Uses Fully Implicit Scheme (Backward Euler) for unconditional stability
-    // - Dynamic Grid Sizing based on Volatility Cones
-    """, language="cpp")
+        st.markdown("* **Option Pricing:** Black-Scholes PDE is a diffusion equation.")
+        st.markdown("* **Convergence:** We prove price stability by refining $ and $.")
