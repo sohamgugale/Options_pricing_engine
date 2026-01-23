@@ -14,7 +14,7 @@ sfc_module = Extension(
 
 setup(
     name='options_solver',
-    version='1.2',  # Bumped to 1.2
+    version='1.3', 
     description='C++ Extension for Options Pricing',
     ext_modules=[sfc_module],
 )
