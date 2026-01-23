@@ -51,15 +51,15 @@ with tab_main:
                 
                 st.markdown("### 🏛️ Risk Sensitivities")
                 
-                # Row 1: Delta, Gamma, Theta (Standard size)
+                # Row 1: Delta, Gamma, Theta
                 c1, c2, c3 = st.columns(3)
                 c1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Exposure")
                 c2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity")
                 c3.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay")
 
-                # Row 2: Vega & Rho (WIDER layout to prevent cutoff)
-                st.markdown("") # Spacer
-                c4, c5 = st.columns([1, 1]) # Equal width, but only 2 cols = wider
+                # Row 2: Vega & Rho (WIDER layout)
+                st.markdown("") 
+                c4, c5 = st.columns([1, 1]) 
                 c4.metric("Vega (ν)", f"{res['vega']:.4f}", help="Vol Sensitivity")
                 c5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Rate Sensitivity")
 
@@ -102,7 +102,6 @@ with tab_val:
     st.markdown("### 🕸️ Mesh Independence Study")
     st.write("Verifying that the C++ Finite Difference solver converges to a stable solution as we refine the time grid ($).")
     
-    # Global definition for this tab
     grid_sizes = [50, 100, 200, 400, 800, 1600]
 
     col_v1, col_v2 = st.columns([1, 2])
