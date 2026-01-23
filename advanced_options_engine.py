@@ -557,3 +557,30 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ==========================================
+#  C++ INTEGRATION (Automated by Setup)
+# ==========================================
+try:
+    import options_solver
+    CPP_AVAILABLE = True
+except ImportError:
+    CPP_AVAILABLE = False
+
+class AmericanOptionPricer:
+    """Wrapper for C++ Crank-Nicolson Solver"""
+    def __init__(self, S, K, T, r, sigma, is_call=True):
+        self.S = S
+        self.K = K
+        self.T = T
+        self.r = r
+        self.sigma = sigma
+        self.is_call = is_call
+
+    def price(self, price_steps=100, time_steps=1000):
+        if not CPP_AVAILABLE:
+            return None
+        return options_solver.price_american(
+            self.S, self.K, self.T, self.r, self.sigma,
+            price_steps, time_steps, self.is_call
+        )
