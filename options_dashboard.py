@@ -49,16 +49,15 @@ with tab_main:
                 
                 st.metric("Model Price", f"${res['price']:.4f}")
                 
-                # --- GREEKS LAYOUT FIX ---
                 st.markdown("### 🏛️ Risk Sensitivities")
                 
-                # Row 1: Small Greeks (3 Cols)
+                # Row 1: Small Greeks
                 g1, g2, g3 = st.columns(3)
                 g1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Price Sensitivity")
                 g2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity")
                 g3.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay")
 
-                # Row 2: Big Greeks (2 Cols - Wider)
+                # Row 2: Big Greeks
                 g4, g5 = st.columns(2)
                 g4.metric("Vega (ν)", f"{res['vega']:.4f}", help="Volatility Sensitivity")
                 g5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Interest Rate Sensitivity")
@@ -102,11 +101,13 @@ with tab_val:
     st.markdown("### 🕸️ Mesh Independence Study")
     st.write("Verifying that the C++ Finite Difference solver converges to a stable solution as we refine the time grid ($).")
     
+    # MOVED DEFINITION HERE (Global to the Tab)
+    grid_sizes = [50, 100, 200, 400, 800, 1600]
+
     col_v1, col_v2 = st.columns([1, 2])
     with col_v1:
         if st.button("Run Convergence Test"):
             if CPP_AVAILABLE:
-                grid_sizes = [50, 100, 200, 400, 800, 1600]
                 prices = []
                 
                 progress_bar = st.progress(0)
@@ -143,6 +144,7 @@ with tab_val:
             st.plotly_chart(fig_conv, use_container_width=True)
             
             change = abs(df['Price'].iloc[-1] - df['Price'].iloc[-2])
+            # Now grid_sizes is visible here!
             st.success(f"Converged! Change from N={grid_sizes[-2]} to N={grid_sizes[-1]} is only ${change:.6f}")
 
     st.markdown("---")
