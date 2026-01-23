@@ -8,7 +8,7 @@ namespace py = pybind11;
 using namespace std;
 
 // --- UTILITY: Tridiagonal Matrix Algorithm (TDMA) ---
-// Solves Ax = d efficiently in O(N)
+// Solves Ax = d efficiently in O(N) time complexity
 vector<double> solve_tridiagonal(const vector<double>& a, const vector<double>& b, 
                                  const vector<double>& c, const vector<double>& d) {
     int n = d.size();
@@ -33,8 +33,7 @@ vector<double> solve_tridiagonal(const vector<double>& a, const vector<double>& 
 }
 
 // --- ENGINE: Crank-Nicolson Finite Difference Solver ---
-// Solves the Black-Scholes PDE for American Options
-// V_t + 0.5*sigma^2*S^2*V_ss + r*S*V_s - rV = 0
+// Solves Black-Scholes PDE: V_t + 0.5*sigma^2*S^2*V_ss + r*S*V_s - rV = 0
 double price_american_option_cn(double S, double K, double T, double r, double sigma, 
                                 int M, int N, bool is_call) {
     double S_max = 3 * K;      
@@ -53,7 +52,7 @@ double price_american_option_cn(double S, double K, double T, double r, double s
 
     vector<double> a(M - 1), b(M - 1), c(M - 1);
 
-    // 2. Time Stepping (Backward)
+    // 2. Time Stepping (Backward from T to 0)
     for (int j = N - 1; j >= 0; --j) {
         vector<double> d(M - 1);
         
@@ -61,6 +60,7 @@ double price_american_option_cn(double S, double K, double T, double r, double s
             double sigma2 = sigma * sigma;
             double idx = (double)i;
             
+            // Crank-Nicolson Coefficients
             double alpha = 0.25 * dt * (sigma2 * idx * idx - r * idx);
             double beta  = -0.5 * dt * (sigma2 * idx * idx + r);
             double gamma = 0.25 * dt * (sigma2 * idx * idx + r * idx);
@@ -74,14 +74,14 @@ double price_american_option_cn(double S, double K, double T, double r, double s
 
         vector<double> V_new = solve_tridiagonal(a, b, c, d);
 
-        // 3. American Constraint Check (Early Exercise)
+        // 3. American Constraint Check (Early Exercise Optimization)
         for (int i = 1; i < M; ++i) {
             double payoff = is_call ? max(0.0, S_grid[i] - K) : max(0.0, K - S_grid[i]);
             V[i] = max(V_new[i-1], payoff); 
         }
     }
 
-    // 4. Linear Interpolation for result
+    // 4. Linear Interpolation
     int idx = (int)(S / dS);
     return V[idx] + (V[idx+1] - V[idx]) * (S - S_grid[idx]) / dS;
 }
