@@ -270,10 +270,9 @@ CMD ["streamlit", "run", "options_dashboard.py"]
 ## 📞 Contact
 
 **Soham Gugale**  
-📧 Email: [your.email@duke.edu]  
-💼 LinkedIn: [linkedin.com/in/sohamgugale]  
-🌐 Portfolio: [yourportfolio.com]  
-📊 GitHub: [github.com/yourusername]
+📧 Email: [sohamgugale170@gmail.com]  
+💼 LinkedIn: [linkedin.com/in/sohamgugale]   
+📊 GitHub: [github.com/sohamgugale]
 
 ---
 
@@ -286,7 +285,6 @@ MIT License - See [LICENSE](LICENSE) file for details
 ## 🙏 Acknowledgments
 
 - Duke University - Computational Mechanics Program
-- QuantLib community for numerical methods inspiration
 - Streamlit team for interactive visualization framework
 
 ---
@@ -295,6 +293,5 @@ MIT License - See [LICENSE](LICENSE) file for details
   
 **⭐ If this project helped you, please consider giving it a star!**
 
-Built with passion for quantitative finance | © 2025 Soham Gugale
 
 </div>
