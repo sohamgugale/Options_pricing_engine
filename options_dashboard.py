@@ -132,3 +132,39 @@ with col2:
         2. **Implicit Solver:** We construct a tridiagonal matrix system to step backward in time.
         3. **Stability:** The method is unconditionally stable for any grid size.
         """)
+
+# --- APPEND TO VALIDATION TAB ---
+with tab_val:
+    st.markdown("---")
+    st.markdown("### 🛡️ Unit Test Suite")
+    if st.button("Run Live Verification Tests"):
+        st.write("Running benchmark tests against Analytical Solutions...")
+        
+        # Test 1: BS Convergence
+        bs_price = BlackScholesEngine(100, 100, 1, 0.05, 0.2, True).price()
+        fdm_price = FDMEngine(100, 100, 1, 0.05, 0.2, True, False).calculate()['price']
+        err = abs(bs_price - fdm_price)
+        
+        if err < 0.05:
+            st.success(f"✅ PASS: European Call Match (Diff: ${err:.4f})")
+        else:
+            st.error(f"❌ FAIL: European Call Mismatch (Diff: ${err:.4f})")
+
+        # Test 2: Put-Call Parity
+        c = FDMEngine(100, 100, 1, 0.05, 0.2, True, False).calculate()['price']
+        p = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
+        parity_diff = abs((c - p) - (100 - 100*np.exp(-0.05)))
+        
+        if parity_diff < 0.05:
+            st.success(f"✅ PASS: Put-Call Parity (Diff: {parity_diff:.4f})")
+        else:
+            st.error(f"❌ FAIL: Parity Violation")
+            
+        # Test 3: American Premium
+        euro_put = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
+        amer_put = FDMEngine(100, 100, 1, 0.05, 0.2, False, True).calculate()['price']
+        
+        if amer_put >= euro_put:
+             st.success(f"✅ PASS: American Premium ({amer_put:.4f} >= {euro_put:.4f})")
+        else:
+             st.error("❌ FAIL: Arbitrage Opportunity Detected")

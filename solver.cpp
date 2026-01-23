@@ -34,34 +34,13 @@ vector<double> solve_tridiagonal(const vector<double>& a, const vector<double>& 
     return x;
 }
 
-// --- CORE PDE SOLVER (Internal Function) ---
-// Returns the full price vector at t=0
-vector<double> run_solver_internal(
-    double S, double K, double T, double r, double sigma, 
-    double B_barrier, int M, int N, bool is_call, bool is_american, 
-    double& theta_out, double& S_min_out, double& dS_out) 
+// --- CORE PDE SOLVER (Internal - Uses FIXED Grid) ---
+vector<double> run_solver_on_fixed_grid(
+    double S_min, double dS, int M, int N, // FIXED GRID PARAMS
+    double K, double T, double r, double sigma, 
+    double B_barrier, bool is_call, bool is_american) 
 {
-    // 1. Dynamic Grid Sizing (Mechanics: Diffusion Length)
-    // Domain should cover ~5 standard deviations to avoid boundary errors
-    double vol_sqrt_t = sigma * sqrt(T);
-    double S_max = K * exp(5.0 * vol_sqrt_t); 
-    double S_min = 0.0;
-
-    // Adjust for Barrier
-    if (B_barrier > 0) {
-        if (is_call) S_max = B_barrier;
-        else         S_min = B_barrier;
-    }
-    
-    // Safety clamp
-    if (S_max < K) S_max = K * 2.0;
-    if (S_min > K) S_min = 0.0;
-
-    S_min_out = S_min;
     double dt = T / N;         
-    double dS = (S_max - S_min) / M;     
-    dS_out = dS;
-
     vector<double> V(M + 1);
     vector<double> S_grid(M + 1);
 
@@ -77,17 +56,10 @@ vector<double> run_solver_internal(
         }
     }
 
-    // Coefficients
     vector<double> a(M - 1), b(M - 1), c(M - 1), d(M - 1);
     
-    // Previous time step storage for Theta
-    vector<double> V_prev_step = V; 
-
     // Time Stepping
     for (int j = N - 1; j >= 0; --j) {
-        // Store V before update (at j+1)
-        if (j == N - 1) V_prev_step = V; // t=T
-        
         for (int i = 1; i < M; ++i) {
             int k = i - 1;
             double Si = S_grid[i];
@@ -102,9 +74,8 @@ vector<double> run_solver_internal(
             d[k] = V[i];
         }
 
-        // Boundaries
         double val_L = is_call ? 0.0 : (S_min <= B_barrier + 1e-9 && B_barrier>0 ? 0.0 : (K - S_min)*exp(-r*(T - j*dt)));
-        double val_R = is_call ? (S_max >= B_barrier - 1e-9 && B_barrier>0 ? 0.0 : (S_max - K)*exp(-r*(T - j*dt))) : 0.0;
+        double val_R = is_call ? (S_min + M*dS >= B_barrier - 1e-9 && B_barrier>0 ? 0.0 : ((S_min + M*dS) - K)*exp(-r*(T - j*dt))) : 0.0;
 
         d[0]   -= a[0] * val_L;
         d[M-2] -= c[M-2] * val_R;
@@ -124,77 +95,74 @@ vector<double> run_solver_internal(
                 V[i] = cont;
             }
         }
-        
-        // Capture Theta near T=0 (Current Time)
-        // Actually, Theta is dV/dt. 
-        // V currently holds V(0). The previous loop held V(dt).
-        // So V(dt) is V_new from the *second to last* step? 
-        // Simpler: Just run the loop. We need V at t=0 and V at t=dt.
-        if (j == 0) {
-             // We are at the last step (going from dt to 0).
-             // V_new is V(0). V (before update) was V(dt).
-             // We can estimate theta roughly here, or use the Bump method for consistency.
-        }
     }
     return V;
 }
 
-// --- MAIN WRAPPER WITH SENSITIVITY ANALYSIS ---
+// --- MAIN WRAPPER ---
 map<string, double> solve_with_greeks(
     double S, double K, double T, double r, double sigma, 
     double B_barrier, int M, int N, bool is_call, bool is_american) 
 {
-    // 1. Base Run
-    double theta_dummy, S_min, dS;
-    vector<double> V = run_solver_internal(S, K, T, r, sigma, B_barrier, M, N, is_call, is_american, theta_dummy, S_min, dS);
+    // 1. DEFINE GRID ONCE (The "Boundary Layer" Sizing)
+    double vol_sqrt_t = sigma * sqrt(T);
+    double S_max = K * exp(5.0 * vol_sqrt_t); 
+    double S_min = 0.0;
+
+    if (B_barrier > 0) {
+        if (is_call) S_max = B_barrier;
+        else         S_min = B_barrier;
+    }
+    if (S_max < K) S_max = K * 2.0;
+    if (S_min > K) S_min = 0.0;
+
+    double dS = (S_max - S_min) / M;     
+
+    // 2. Base Run
+    vector<double> V = run_solver_on_fixed_grid(S_min, dS, M, N, K, T, r, sigma, B_barrier, is_call, is_american);
     
-    // Interpolate Base Price
     int idx = (int)((S - S_min) / dS);
-    if (idx < 0 || idx >= M) return {{"price", 0.0}}; // Safety
+    if (idx < 0 || idx >= M) return {{"price", 0.0}}; 
     
     double price = V[idx] + (V[idx+1] - V[idx]) * (S - (S_min + idx*dS)) / dS;
     double delta = (V[idx+1] - V[idx-1]) / (2 * dS);
     double gamma = (V[idx+1] - 2*V[idx] + V[idx-1]) / (dS * dS);
 
-    // 2. Vega (Sensitivity to Sigma) - "Bump and Revalue"
-    // Mechanics: dPrice/dSigma
+    // 3. Vega (Sensitivity to Sigma) - Uses SAME Grid
     double dSigma = 0.01;
-    double theta_dummy2, S_min2, dS2;
-    vector<double> V_vega = run_solver_internal(S, K, T, r, sigma + dSigma, B_barrier, M, N, is_call, is_american, theta_dummy2, S_min2, dS2);
-    
-    // Interpolate Vega Price
-    // Note: Grid might change slightly due to dynamic sizing! 
-    // Ideally, fix grid for sensitivities. For now, assume interp handles it.
-    int idx2 = (int)((S - S_min2) / dS2);
-    double price_vega = V_vega[idx2] + (V_vega[idx2+1] - V_vega[idx2]) * (S - (S_min2 + idx2*dS2)) / dS2;
+    vector<double> V_vega = run_solver_on_fixed_grid(S_min, dS, M, N, K, T, r, sigma + dSigma, B_barrier, is_call, is_american);
+    double price_vega = V_vega[idx] + (V_vega[idx+1] - V_vega[idx]) * (S - (S_min + idx*dS)) / dS;
     double vega = (price_vega - price) / dSigma;
 
-    // 3. Rho (Sensitivity to Rate)
+    // 4. Rho (Sensitivity to Rate) - Uses SAME Grid
     double dr = 0.01;
-    vector<double> V_rho = run_solver_internal(S, K, T, r + dr, sigma, B_barrier, M, N, is_call, is_american, theta_dummy2, S_min2, dS2);
-    int idx3 = (int)((S - S_min2) / dS2);
-    double price_rho = V_rho[idx3] + (V_rho[idx3+1] - V_rho[idx3]) * (S - (S_min2 + idx3*dS2)) / dS2;
+    vector<double> V_rho = run_solver_on_fixed_grid(S_min, dS, M, N, K, T, r + dr, sigma, B_barrier, is_call, is_american);
+    double price_rho = V_rho[idx] + (V_rho[idx+1] - V_rho[idx]) * (S - (S_min + idx*dS)) / dS;
     double rho = (price_rho - price) / dr;
 
-    // 4. Theta (Sensitivity to Time)
-    // Run for T - dt
-    double dT_bump = 1.0/365.0; // One day
+    // 5. Theta (Sensitivity to Time)
+    // Here we reduce T, but keep the SPACE grid (S_min, dS) same.
+    double dT_bump = 1.0/365.0; 
+    double theta = 0.0;
     if (T > dT_bump) {
-         vector<double> V_theta = run_solver_internal(S, K, T - dT_bump, r, sigma, B_barrier, M, N, is_call, is_american, theta_dummy2, S_min2, dS2);
-         int idx4 = (int)((S - S_min2) / dS2);
-         double price_theta = V_theta[idx4] + (V_theta[idx4+1] - V_theta[idx4]) * (S - (S_min2 + idx4*dS2)) / dS2;
-         theta_dummy = (price_theta - price) / dT_bump;
-    } else {
-        theta_dummy = 0.0;
+         vector<double> V_theta = run_solver_on_fixed_grid(S_min, dS, M, N, K, T - dT_bump, r, sigma, B_barrier, is_call, is_american);
+         double price_theta = V_theta[idx] + (V_theta[idx+1] - V_theta[idx]) * (S - (S_min + idx*dS)) / dS;
+         
+         // FIX: Theta is Price(Tomorrow) - Price(Today). 
+         // Since we calculated Price(T - 1 day), that IS "Tomorrow's Price" (less time to maturity).
+         // So diff is P(T-dt) - P(T). 
+         // Usually Theta is defined as "change per day passing".
+         // If P(T=1yr) = 10, and P(T=0.99yr) = 9.9, we lost 0.1. Theta should be -0.1.
+         theta = (price_theta - price); // Per day decay
     }
 
     return {
         {"price", price},
         {"delta", delta},
         {"gamma", gamma},
-        {"vega", vega},   // New!
-        {"rho", rho},     // New!
-        {"theta", theta_dummy} // New!
+        {"vega", vega},   
+        {"rho", rho},     
+        {"theta", theta} 
     };
 }
 
