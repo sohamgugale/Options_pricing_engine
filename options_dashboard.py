@@ -51,16 +51,17 @@ with tab_main:
                 
                 st.markdown("### 🏛️ Risk Sensitivities")
                 
-                # Row 1: Small Greeks
-                g1, g2, g3 = st.columns(3)
-                g1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Price Sensitivity")
-                g2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity")
-                g3.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay")
+                # Row 1: Delta, Gamma, Theta (Standard size)
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Exposure")
+                c2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity")
+                c3.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay")
 
-                # Row 2: Big Greeks
-                g4, g5 = st.columns(2)
-                g4.metric("Vega (ν)", f"{res['vega']:.4f}", help="Volatility Sensitivity")
-                g5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Interest Rate Sensitivity")
+                # Row 2: Vega & Rho (WIDER layout to prevent cutoff)
+                st.markdown("") # Spacer
+                c4, c5 = st.columns([1, 1]) # Equal width, but only 2 cols = wider
+                c4.metric("Vega (ν)", f"{res['vega']:.4f}", help="Vol Sensitivity")
+                c5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Rate Sensitivity")
 
                 if barrier > 0:
                      if (is_call and S >= barrier) or (not is_call and S <= barrier):
@@ -101,7 +102,7 @@ with tab_val:
     st.markdown("### 🕸️ Mesh Independence Study")
     st.write("Verifying that the C++ Finite Difference solver converges to a stable solution as we refine the time grid ($).")
     
-    # MOVED DEFINITION HERE (Global to the Tab)
+    # Global definition for this tab
     grid_sizes = [50, 100, 200, 400, 800, 1600]
 
     col_v1, col_v2 = st.columns([1, 2])
@@ -109,7 +110,6 @@ with tab_val:
         if st.button("Run Convergence Test"):
             if CPP_AVAILABLE:
                 prices = []
-                
                 progress_bar = st.progress(0)
                 for i, n in enumerate(grid_sizes):
                     m = int(n/2) 
@@ -144,26 +144,41 @@ with tab_val:
             st.plotly_chart(fig_conv, use_container_width=True)
             
             change = abs(df['Price'].iloc[-1] - df['Price'].iloc[-2])
-            # Now grid_sizes is visible here!
             st.success(f"Converged! Change from N={grid_sizes[-2]} to N={grid_sizes[-1]} is only ${change:.6f}")
 
     st.markdown("---")
     st.markdown("### 🛡️ Unit Test Suite")
     if st.button("Run Live Verification Tests"):
         st.write("Running benchmark tests against Analytical Solutions...")
+        
+        # Test 1
         bs_price = BlackScholesEngine(100, 100, 1, 0.05, 0.2, True).price()
         fdm_price = FDMEngine(100, 100, 1, 0.05, 0.2, True, False).calculate()['price']
         err = abs(bs_price - fdm_price)
-        st.success(f"✅ PASS: European Call Match (Diff: ${err:.4f})") if err < 0.05 else st.error(f"❌ FAIL: Diff ${err:.4f}")
+        
+        if err < 0.05:
+            st.success(f"✅ PASS: European Call Match (Diff: ${err:.4f})")
+        else:
+            st.error(f"❌ FAIL: Diff ${err:.4f}")
 
+        # Test 2
         c = FDMEngine(100, 100, 1, 0.05, 0.2, True, False).calculate()['price']
         p = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
         diff = abs((c - p) - (100 - 100*np.exp(-0.05)))
-        st.success(f"✅ PASS: Put-Call Parity (Diff: {diff:.4f})") if diff < 0.05 else st.error("❌ FAIL")
+        
+        if diff < 0.05:
+            st.success(f"✅ PASS: Put-Call Parity (Diff: {diff:.4f})")
+        else:
+            st.error("❌ FAIL: Parity Violation")
             
+        # Test 3
         euro = FDMEngine(100, 100, 1, 0.05, 0.2, False, False).calculate()['price']
         amer = FDMEngine(100, 100, 1, 0.05, 0.2, False, True).calculate()['price']
-        st.success(f"✅ PASS: American Premium ({amer:.4f} >= {euro:.4f})") if amer >= euro else st.error("❌ FAIL")
+        
+        if amer >= euro:
+            st.success(f"✅ PASS: American Premium ({amer:.4f} >= {euro:.4f})")
+        else:
+            st.error("❌ FAIL: Arbitrage Opportunity")
 
 # --- TAB 3: METHODOLOGY ---
 with tab_about:
