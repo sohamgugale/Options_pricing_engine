@@ -51,17 +51,21 @@ with tab_main:
                 
                 st.markdown("### 🏛️ Risk Sensitivities")
                 
-                # Row 1: Delta, Gamma, Theta
-                c1, c2, c3 = st.columns(3)
+                # --- NEW SPACIOUS LAYOUT (2 Cols instead of 3) ---
+                # Row 1
+                c1, c2 = st.columns(2)
                 c1.metric("Delta (Δ)", f"{res['delta']:.4f}", help="Exposure")
                 c2.metric("Gamma (Γ)", f"{res['gamma']:.4f}", help="Convexity")
+                
+                # Row 2
+                c3, c4 = st.columns(2)
                 c3.metric("Theta (Θ)", f"{res['theta']:.4f}", help="Time Decay")
-
-                # Row 2: Vega & Rho (WIDER layout)
-                st.markdown("") 
-                c4, c5 = st.columns([1, 1]) 
                 c4.metric("Vega (ν)", f"{res['vega']:.4f}", help="Vol Sensitivity")
+                
+                # Row 3 (Rho alone to ensure full width)
+                c5, c6 = st.columns(2)
                 c5.metric("Rho (ρ)", f"{res['rho']:.4f}", help="Rate Sensitivity")
+                # c6 is empty spacer
 
                 if barrier > 0:
                      if (is_call and S >= barrier) or (not is_call and S <= barrier):
