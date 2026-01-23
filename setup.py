@@ -2,7 +2,7 @@ import sys
 from setuptools import setup, Extension
 import pybind11
 
-# Compiler flags: Mac (local) vs Linux (Streamlit Cloud)
+# Compiler flags
 cpp_args = ['-std=c++11', '-stdlib=libc++', '-mmacosx-version-min=10.7'] if sys.platform == 'darwin' else ['-std=c++11', '-O3']
 
 sfc_module = Extension(
@@ -15,7 +15,7 @@ sfc_module = Extension(
 
 setup(
     name='options_solver',
-    version='1.0',
+    version='1.1',  # <--- CHANGED FROM 1.0 TO 1.1 TO FORCE REBUILD
     description='C++ Extension for Options Pricing',
     ext_modules=[sfc_module],
 )
