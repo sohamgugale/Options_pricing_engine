@@ -1,48 +1,69 @@
-# High-Performance Options Pricing Engine
+# Finite-Difference Options Pricing Engine (C++ / pybind11)
 
-[![Language](https://img.shields.io/badge/C++-17-blue.svg)](https://isocpp.org/)
-[![Python](https://img.shields.io/badge/Python-3.10-yellow.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Frontend-Streamlit-red)](https://streamlit.io/)
+A Black-Scholes PDE solver written from scratch in C++ and exposed to Python with pybind11. It prices European, American and barrier options and returns the full set of Greeks. A Streamlit dashboard sits on top for interactive sensitivity analysis.
 
-### 🚀 [Live Demo](https://sohamgugale-options-pricing.streamlit.app) 
-*(Note: Replace the URL above with your actual Streamlit link after deploying)*
+## Method
 
-## 💡 Overview
-A professional-grade quantitative finance tool that bridges **Computational Mechanics** and **Derivatives Pricing**. 
+- **Discretization:** Crank-Nicolson time-stepping on a uniform asset-price grid. The scheme is second-order in time and space and unconditionally stable.
+- **Linear solve:** each time step is a tridiagonal system, solved in O(M) with the Thomas algorithm.
+- **American exercise:** after each step, the solution is projected onto the payoff, V = max(V, payoff).
+- **Barriers:** knock-out options are handled by placing the grid boundary on the barrier.
+- **Grid sizing:** the price domain spans ±5σ√T around the strike.
+- **Greeks:**
+  - Δ and Γ come from central differences on the solution grid.
+  - Vega, ρ and Θ come from bump-and-reprice on the *same* grid, so discretization error cancels in the difference.
+- **Bindings:** the core solver is C++ and is compiled into a Python module (`options_solver`) with pybind11.
 
-Unlike standard "plug-and-play" Black-Scholes calculators, this engine implements a **Finite Difference Method (FDM)** solver from scratch in **C++**, capable of pricing **American Options** by solving the Parabolic PDE on a discretized grid.
+## Results
 
-## 🛠️ Technical Architecture
-* **Core Engine (C++):** Implements the **Crank-Nicolson Scheme** (unconditionally stable) to solve the Black-Scholes Partial Differential Equation.
-* **Solver:** Custom **Tridiagonal Matrix Algorithm (TDMA)** for O(N) linear system solving.
-* **Integration:** Uses **PyBind11** to expose high-performance C++ binaries to Python as a compiled module.
-* **Frontend:** Streamlit dashboard for real-time sensitivity analysis.
+Run `python validate.py` to reproduce these.
 
-## 📊 Key Features
-| Feature | Method | Complexity |
-| :--- | :--- | :--- |
-| **American Options** | Finite Difference (PDE) | O(M*N) |
-| **European Options** | Analytical Black-Scholes | O(1) |
-| **Grid Solver** | Crank-Nicolson (Implicit) | Unconditionally Stable |
-| **Linear Algebra** | Thomas Algorithm | O(N) |
+| Check | Reference | Result |
+|---|---|---|
+| European calls and puts, 90 cases (S ∈ 80–120, T ∈ 0.25–1, σ ∈ 0.15–0.40), 400×400 grid | Closed-form Black-Scholes | max error 0.28%, median 0.02% |
+| American put (S = K = 100, T = 1, r = 5%, σ = 20%) | 5,000-step binomial tree | 6.084 vs 6.090 (0.10%) |
+| Put-call parity | C − P = S − Ke^(−rT) | passes (unit test) |
+| American premium | American put ≥ European put | passes (unit test) |
+| Runtime: price + all Greeks, 200×200 grid | — | 1.7 ms (single core) |
 
-## 🔧 Installation & Usage
+## Build and run
 
-**1. Clone the repository**
-```bash
-git clone https://github.com/sohamgugale/Options_pricing_engine.git
-cd Options_pricing_engine
-```
+Install the package. This compiles the C++ extension:
 
-**2. Compile the C++ Engine**
 ```bash
 pip install .
 ```
 
-**3. Run the Dashboard**
+Run the unit tests:
+
+```bash
+python -m unittest discover tests
+```
+
+Reproduce the results table:
+
+```bash
+python validate.py
+```
+
+Launch the dashboard:
+
 ```bash
 streamlit run options_dashboard.py
 ```
 
----
-*Built by **Soham Gugale** as a demonstration of Computational Mechanics applied to Quantitative Finance.*
+## Layout
+
+| File | Contents |
+|---|---|
+| `solver.cpp` | Crank-Nicolson solver, Thomas algorithm, Greeks, pybind11 module |
+| `advanced_options_engine.py` | Python wrappers (`FDMEngine`, closed-form `BlackScholesEngine`) |
+| `tests/test_pricing.py` | Convergence, put-call parity and American-premium tests |
+| `validate.py` | Accuracy and timing benchmark behind the results table |
+| `options_dashboard.py` | Streamlit front end |
+
+## Next steps
+
+- Replace the projection step with PSOR or a penalty method, to get the American constraint enforced inside each solve.
+- Add Rannacher time-stepping (a few implicit steps at the start) to damp oscillations from the payoff kink.
+- Use a non-uniform grid concentrated near the strike.
